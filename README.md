@@ -1,12 +1,14 @@
-# java-nio-tls-proxy
-
 # secure sni/tls routing in java	
 This library is the love child of:
 https://github.com/marianobarrios/tls-channel
+
 and
+
 https://github.com/terma/java-nio-tcp-proxy
 
 With the below example, you can listen on port 6969, decrypt the connection, and forward it to port 8181.
+
+The ssl context and "upstream" socket address  are generated dynamically, so SNI routing can also be used.
 
 	TcpDynamicProxyConfig config = TcpDynamicProxyConfig.builder().withLocalPort(6969)
 			.withRemoteSocketAddressGenerator(op -> {
@@ -19,4 +21,3 @@ With the below example, you can listen on port 6969, decrypt the connection, and
 	proxy.start();
 	System.out.println("started");
 	Thread.currentThread().join();
-
