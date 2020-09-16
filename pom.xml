@@ -8,8 +8,6 @@
 	<packaging>pom</packaging>
 	<modules>
 		<module>core</module>
-		<module>service</module>
-		<module>impl</module>
 	</modules>
 	<distributionManagement>
 		<repository>
@@ -27,7 +25,6 @@
 		<maven.build.timestamp.format>yyyy-MM-dd-HH-mm-ss</maven.build.timestamp.format>
 		<maven.compiler.source>11</maven.compiler.source>
 		<maven.compiler.target>11</maven.compiler.target>
-		<com.lfp.joe.version>7.9.5-RELEASE</com.lfp.joe.version>
 	</properties>
 	<repositories>
 		<repository>

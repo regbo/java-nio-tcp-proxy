@@ -12,14 +12,14 @@
 	<packaging>jar</packaging>
 	<dependencies>
 		<dependency>
-			<groupId>com.lfp</groupId>
-			<artifactId>joe-utils</artifactId>
-			<version>${com.lfp.joe.version}</version>
+			<groupId>com.github.terma</groupId>
+			<artifactId>java-nio-tcp-proxy</artifactId>
+			<version>91b1b9ede0</version>
 		</dependency>
 		<dependency>
-			<groupId>com.lfp</groupId>
-			<artifactId>joe-properties</artifactId>
-			<version>${com.lfp.joe.version}</version>
+			<groupId>com.github.marianobarrios</groupId>
+			<artifactId>tls-channel</artifactId>
+			<version>0.4.0</version>
 		</dependency>
 	</dependencies>
 </project>
