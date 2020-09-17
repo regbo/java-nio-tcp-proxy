@@ -57,6 +57,7 @@ public class NonBlockingServer {
 			serverSocket.configureBlocking(false);
 			SSLContext sslContext = TcpProxyTest.createSSLContext();
 			int workers = Utils.Machine.logicalProcessorCount();
+			workers = 1;
 			for (int i = 0; i < workers; i++) {
 				var serverSelector = Selector.open();
 				var forwardSelector = Selector.open();
@@ -75,11 +76,6 @@ public class NonBlockingServer {
 
 	private static void process(SSLContext sslContext, Selector serverSelector, Selector forwardSelector,
 			SelectionKey key) throws IOException {
-		if (key.attachment() != null) {
-			var kc = KeyContext.get(key);
-			if (kc.getTlsChannel() == null)
-				System.out.println(kc);
-		}
 		if (key.selector() == serverSelector)
 			processServer(sslContext, forwardSelector, key);
 		else
@@ -109,8 +105,9 @@ public class NonBlockingServer {
 					forwardChannel.write(bb);
 					key.channel().register(key.selector(), SelectionKey.OP_READ, keyContext);
 				}
-				if (read < 0)
-					closeQuietly(forwardChannel);
+				if (read < 0) {
+					closeQuietly(key);
+				}
 			});
 		} else {
 			throw new IllegalStateException("unrecognized key options:" + key.interestOps());
@@ -125,15 +122,10 @@ public class NonBlockingServer {
 			int read = forwardChannel.read(bb);
 			if (read > 0) {
 				bb.flip();
-				accessTlsChannel(key, tlsChanel -> tlsChanel.write(bb));
+				accessTlsChannel(key, tlsChannel -> tlsChannel.write(bb));
 			}
 			if (read < 0) {
-				var keyContext = KeyContext.get(key);
-				var tlsc = keyContext.getTlsChannel();
-				if (tlsc != null) {
-					closeQuietly(tlsc);
-					closeQuietly(tlsc.getUnderlying());
-				}
+				closeQuietly(key);
 			}
 		} else {
 			throw new IllegalStateException("unrecognized key options:" + key.interestOps());
@@ -196,6 +188,21 @@ public class NonBlockingServer {
 			SelectionKey newKey = rawChannel.register(key.selector(), SelectionKey.OP_READ);
 			KeyContext.copy(key, newKey);
 		}
+	}
+
+	private static void closeQuietly(SelectionKey selectionKey) {
+		if (selectionKey == null)
+			return;
+		var attachment = selectionKey.attachment();
+		if (attachment != null) {
+			var kc = KeyContext.get(selectionKey);
+			var tlsc = kc.getTlsChannel();
+			if (tlsc != null) {
+				closeQuietly(tlsc.getUnderlying());
+				closeQuietly(tlsc);
+			}
+		}
+		closeQuietly(selectionKey.channel());
 	}
 
 	private static void closeQuietly(Closeable closeable) {

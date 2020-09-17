@@ -20,6 +20,7 @@ import java.util.function.Function;
 import java.util.function.Supplier;
 
 import org.apache.commons.lang3.Validate;
+import org.slf4j.Logger;
 import org.threadly.concurrent.future.FutureUtils;
 import org.threadly.concurrent.future.ListenableFuture;
 
@@ -47,11 +48,8 @@ public interface SelectorProcessor {
 
 	public static SelectorProcessor createLogging(
 			ThrowingBiConsumer<List<Selector>, SelectionKey, IOException> processor) {
-		final Class<?> THIS_CLASS = new Object() {
-		}.getClass().getEnclosingClass();
-		org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(THIS_CLASS);
 		return create(processor, errorDetails -> {
-			logger.error(getErrorMessage("processing error", errorDetails), errorDetails.getError());
+			getLogger().error(getErrorMessage("processing error", errorDetails), errorDetails.getError());
 			return false;
 		});
 	}
@@ -204,4 +202,8 @@ public interface SelectorProcessor {
 		return sb.toString();
 	}
 
+	private static Logger getLogger() {
+		org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(SelectorProcessor.class);
+		return logger;
+	}
 }
