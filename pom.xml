@@ -20,6 +20,7 @@
 		</snapshotRepository>
 	</distributionManagement>
 	<properties>
+		<com.lfp.joe.version>7.9.8-RELEASE</com.lfp.joe.version>
 		<revision>0.0.1-RELEASE</revision>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.build.timestamp.format>yyyy-MM-dd-HH-mm-ss</maven.build.timestamp.format>

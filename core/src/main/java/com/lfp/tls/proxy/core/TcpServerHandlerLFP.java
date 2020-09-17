@@ -3,12 +3,17 @@ package com.lfp.tls.proxy.core;
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.SocketChannel;
+import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 
@@ -35,6 +40,7 @@ public class TcpServerHandlerLFP implements TcpServerHandler {
 	private SocketChannel serverChannel;
 	private TcpDynamicProxyConfig config;
 	private Optional<ServerTlsChannel> clientTlsChannelOp;
+	private CompletableFuture<Void> serverTlsChannelFuture;
 
 	public TcpServerHandlerLFP(TcpDynamicProxyConfig config, SocketChannel clientChannel,
 			SniSslContextFactory sniSslContextFactory) {
@@ -125,7 +131,14 @@ public class TcpServerHandlerLFP implements TcpServerHandler {
 					int clientOps = 0;
 					clientOps |= SelectionKey.OP_READ;
 					clientOps |= SelectionKey.OP_WRITE;
-					clientChannel.register(selector, clientOps, this);
+					var key = clientChannel.register(selector, clientOps, this);
+					try {
+						serverBuffer.writeFrom(clientTlsChannelOp.get());
+					} catch (NeedsReadException e) {
+						key.interestOps(SelectionKey.OP_READ); // overwrites previous value
+					} catch (NeedsWriteException e) {
+						key.interestOps(SelectionKey.OP_WRITE); // overwrites previous value
+					}
 				} else
 					clientTlsChannelOp = Optional.empty();
 			}
@@ -146,6 +159,10 @@ public class TcpServerHandlerLFP implements TcpServerHandler {
 	}
 
 	protected ServerTlsChannel createServerTlsChannel() {
+		this.serverTlsChannelFuture = CompletableFuture.runAsync(() -> {
+			this.destroy();
+			logger.log(Level.WARNING, "serverChannel tls callback failed, perhaps non https request made");
+		}, CompletableFuture.delayedExecutor(5, TimeUnit.SECONDS));
 		AtomicReference<SNIServerName> sniServerNameRef = new AtomicReference<>();
 		ServerTlsChannel.Builder builder = ServerTlsChannel.newBuilder(clientChannel, sniServerNameOp -> {
 			sniServerNameRef.set(sniServerNameOp.orElse(null));
@@ -156,17 +173,20 @@ public class TcpServerHandlerLFP implements TcpServerHandler {
 				return Optional.empty();
 			return resultOp;
 		}).withSessionInitCallback(ssls -> {
-			SSLSessionLFP sslSession = SSLSessionLFP.create(ssls);
-			if (sniServerNameRef.get() != null)
-				sslSession.putAttribute(sniServerNameRef.get());
-			var serverChannelSocketAddress = createServerChannelSocketAddress(Optional.of(sslSession));
+			SocketAddress serverChannelSocketAddress = null;
 			try {
+				SSLSessionLFP sslSession = SSLSessionLFP.create(ssls);
+				if (sniServerNameRef.get() != null)
+					sslSession.putAttribute(sniServerNameRef.get());
+				serverChannelSocketAddress = createServerChannelSocketAddress(Optional.of(sslSession));
 				serverChannelConnect(serverChannelSocketAddress);
-			} catch (IOException e) {
+			} catch (Exception e) {
 				destroy();
 				logger.log(Level.WARNING, String.format(
 						"serverChannel connection failed. serverChannelSocketAddress:%s clientTlsChannelPresent:%s",
 						serverChannelSocketAddress, clientTlsChannelOp.isPresent()), e);
+			} finally {
+				this.serverTlsChannelFuture.cancel(true);
 			}
 		});
 		return builder.build();
@@ -213,6 +233,8 @@ public class TcpServerHandlerLFP implements TcpServerHandler {
 		closeQuietly(serverChannel);
 		if (clientTlsChannelOp != null)
 			closeQuietly(clientTlsChannelOp.orElse(null));
+		if (serverTlsChannelFuture != null)
+			serverTlsChannelFuture.cancel(true);
 	}
 
 }

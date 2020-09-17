@@ -10,7 +10,15 @@
 	<artifactId>java-nio-tls-proxy-core</artifactId>
 	<name>${project.groupId}.${project.artifactId}</name>
 	<packaging>jar</packaging>
+	<properties>
+		<com.lfp.joe.version>7.9.8-RELEASE</com.lfp.joe.version>
+	</properties>
 	<dependencies>
+		<dependency>
+			<groupId>com.lfp</groupId>
+			<artifactId>joe-threads</artifactId>
+			<version>${com.lfp.joe.version}</version>
+		</dependency>
 		<dependency>
 			<groupId>com.github.terma</groupId>
 			<artifactId>java-nio-tcp-proxy</artifactId>
@@ -20,6 +28,11 @@
 			<groupId>com.github.marianobarrios</groupId>
 			<artifactId>tls-channel</artifactId>
 			<version>0.4.0</version>
+		</dependency>
+		<dependency>
+			<groupId>org.slf4j</groupId>
+			<artifactId>slf4j-simple</artifactId>
+			<version>1.7.30</version>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
