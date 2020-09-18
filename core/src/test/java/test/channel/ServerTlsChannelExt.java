@@ -3,19 +3,25 @@ package test.channel;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
+import java.nio.channels.SocketChannel;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLHandshakeException;
@@ -38,32 +44,70 @@ public class ServerTlsChannelExt implements TlsChannel {
 	private final AtomicReference<CompletableFuture<Void>> sslHandshakeTimeoutFutureRef = new AtomicReference<>();
 	private final ServerTlsChannel delegate;
 	private Duration sslHandshakeTimeout;
-	private boolean sslHandshakeTimeoutLogging;
+	private boolean disableSslHandshakeTimeoutLogging;
+	private boolean fixedSSLContext;
+	private SNIServerName sniServerName;
 
-	public ServerTlsChannelExt(ByteChannel underlying) {
-		ServerTlsChannel.Builder delegateBuilder = ServerTlsChannel.newBuilder(underlying, sniServerNameOp -> {
-			sniSslContextFactoriesLock.readLock().lock();
-			try {
-				for (var fact : sniSslContextFactories) {
-					var sslContextOp = fact.getSslContext(sniServerNameOp);
-					if (sslContextOp != null && sslContextOp.isPresent())
-						return sslContextOp;
+	public ServerTlsChannelExt(ByteChannel underlying, Consumer<ServerTlsChannel.Builder> builderModifier,
+			SniSslContextFactory... sniSslContextFactories) {
+		this(underlying, builderModifier, (SSLContext) null);
+		if (sniSslContextFactories != null)
+			for (var sniSslContextFactory : sniSslContextFactories)
+				this.addSniSslContextFactory(sniSslContextFactory);
+	}
+
+	@SuppressWarnings("unchecked")
+	public ServerTlsChannelExt(ByteChannel underlying, Consumer<ServerTlsChannel.Builder> builderModifier,
+			SSLContext fixedSSLContext) {
+		ServerTlsChannel.Builder delegateBuilder;
+		if (fixedSSLContext == null) {
+			delegateBuilder = ServerTlsChannel.newBuilder(underlying, sniServerNameOp -> {
+				sniSslContextFactoriesLock.readLock().lock();
+				this.sniServerName = sniServerNameOp.orElse(null);
+				try {
+					for (var fact : sniSslContextFactories) {
+						var sslContextOp = fact.getSslContext(sniServerNameOp);
+						if (sslContextOp != null && sslContextOp.isPresent())
+							return sslContextOp;
+					}
+				} finally {
+					sniSslContextFactoriesLock.readLock().unlock();
 				}
-			} finally {
-				sniSslContextFactoriesLock.readLock().unlock();
-			}
-			return Optional.empty();
-		});
-		delegateBuilder = delegateBuilder.withSessionInitCallback(sslSessionFuture::complete);
+				return Optional.empty();
+			});
+		} else {
+			delegateBuilder = ServerTlsChannel.newBuilder(underlying, fixedSSLContext);
+			this.fixedSSLContext = true;
+		}
+		if (builderModifier != null)
+			builderModifier.accept(delegateBuilder);
 		this.delegate = delegateBuilder.build();
+		TunnelUtils.uncheckedFieldAccess(this.delegate, "sessionInitCallback", Consumer.class, (getter, setter) -> {
+			Consumer<SSLSession> currentSessionInitCallback = getter.get();
+			Consumer<SSLSession> sessionInitCallback = ssls -> {
+				getSslSessionFuture().complete(ssls);
+				if (currentSessionInitCallback != null)
+					currentSessionInitCallback.accept(ssls);
+			};
+			setter.accept(sessionInitCallback);
+			return null;
+		});
+
 	}
 
 	public CompletableFuture<SSLSession> getSslSessionFuture() {
+		if (!sslSessionFuture.isDone()) {
+			var ssls = Optional.ofNullable(this.delegate.getSslEngine()).map(v -> v.getSession()).orElse(null);
+			if (ssls != null)
+				sslSessionFuture.complete(ssls);
+		}
 		return sslSessionFuture;
 	}
 
 	public boolean addSniSslContextFactory(SniSslContextFactory sniSslContextFactory) {
 		if (sniSslContextFactory == null)
+			return false;
+		if (this.fixedSSLContext)
 			return false;
 		sniSslContextFactoriesLock.writeLock().lock();
 		try {
@@ -90,6 +134,15 @@ public class ServerTlsChannelExt implements TlsChannel {
 		return delegate.getSslContext();
 	}
 
+	public void setSslHandshakeTimeout(Duration sslHandshakeTimeout) {
+		this.setSslHandshakeTimeout(sslHandshakeTimeout, false);
+	}
+
+	public void setSslHandshakeTimeout(Duration sslHandshakeTimeout, boolean disableSslHandshakeTimeoutLogging) {
+		this.sslHandshakeTimeout = sslHandshakeTimeout;
+		this.disableSslHandshakeTimeoutLogging = disableSslHandshakeTimeoutLogging;
+	}
+
 	@Override
 	public long read(ByteBuffer[] dstBuffers, int offset, int length) throws IOException {
 		return handleRead(() -> delegate.read(dstBuffers, offset, length));
@@ -105,20 +158,21 @@ public class ServerTlsChannelExt implements TlsChannel {
 		return handleRead(() -> delegate.read(dstBuffer));
 	}
 
-	protected <X> X handleRead(ReadTask<X> readTask) throws IOException {
+	protected <X> X handleRead(Callable<X> readTask) throws IOException {
 		Objects.requireNonNull(readTask);
-		IOException error = null;
+		Exception error = null;
 		try {
-			return readTask.read();
-		} catch (IOException e) {
+			return readTask.call();
+		} catch (Exception e) {
 			error = e;
 		}
 		if (!(error instanceof NeedsReadException))
-			throw error;
+			return TunnelUtils.tryThrowAs(error, IOException.class);
+		NeedsReadException needsReadException = (NeedsReadException) error;
 		if (sslHandshakeTimeout == null)
-			throw error;
-		if (sslSessionFuture.isDone())
-			throw error;
+			throw needsReadException;
+		if (getSslSessionFuture().isDone())
+			throw needsReadException;
 		if (sslHandshakeTimeoutFutureRef.get() == null) {
 			synchronized (sslHandshakeTimeoutFutureRef) {
 				if (sslHandshakeTimeoutFutureRef.get() == null) {
@@ -126,22 +180,23 @@ public class ServerTlsChannelExt implements TlsChannel {
 							TimeUnit.MILLISECONDS);
 					Date startedAt = new Date();
 					var future = CompletableFuture.runAsync(() -> closeIfNotReady(startedAt), executor);
-					this.sslSessionFuture.whenComplete((v, t) -> future.cancel(true));
+					this.getSslSessionFuture().whenComplete((v, t) -> future.cancel(true));
 					sslHandshakeTimeoutFutureRef.set(future);
 				}
 			}
 		}
-		throw error;
+		throw needsReadException;
 	}
 
 	protected void closeIfNotReady(Date startedAt) {
-		if (sslSessionFuture.isDone())
+		if (getSslSessionFuture().isDone())
 			return;
-		long elapsed = System.currentTimeMillis() - startedAt.getTime();
-		String msg = String.format("ssl handshake timeout. elapsed:%s timeoutMillis:%s", elapsed,
-				sslHandshakeTimeout.toMillis());
+		Map<String, Object> logData = TunnelUtils.getSummary(this);
+		logData.put("elapsedMillis", System.currentTimeMillis() - startedAt.getTime());
+		logData.put("timeoutMillis", sslHandshakeTimeout.toMillis());
+		String msg = TunnelUtils.formatSummary("ssl handshake timeout.", logData);
 		var error = new SSLHandshakeException(msg);
-		var completeExceptionally = sslSessionFuture.completeExceptionally(error);
+		var completeExceptionally = getSslSessionFuture().completeExceptionally(error);
 		if (!completeExceptionally)
 			return;
 		try {
@@ -149,20 +204,13 @@ public class ServerTlsChannelExt implements TlsChannel {
 		} catch (IOException e) {
 			// suppress
 		}
-		if (sslHandshakeTimeoutLogging)
+		if (!disableSslHandshakeTimeoutLogging)
 			logger.error(msg, error);
 	}
 
-	public void setSslHandshakeTimeout(Duration sslHandshakeTimeout, boolean sslHandshakeTimeoutLogging) {
-		this.sslHandshakeTimeout = sslHandshakeTimeout;
-		this.sslHandshakeTimeoutLogging = sslHandshakeTimeoutLogging;
+	public SNIServerName getSniServerName() {
+		return sniServerName;
 	}
-
-	private static interface ReadTask<X> {
-
-		public X read() throws IOException;
-	}
-
 	// delegates
 
 	@Override
