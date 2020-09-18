@@ -4,13 +4,12 @@ import java.io.Closeable;
 import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SocketChannel;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
@@ -46,18 +45,16 @@ public class TunnelUtils {
 					return v.toString();
 				}).collect(Collectors.joining("#"));
 		var field = _FIELD_REFLECTION_CACHE.computeIfAbsent(cacheKey, nil -> {
-			Class<?> classType = declaringObject.getClass();
-			List<Field> fields = new ArrayList<>();
-			while (classType != null && fields.size() < 2) {
+			Stream<Field> fieldStream = streamHierarcy(declaringObject.getClass()).map(v -> {
 				Stream<Field> stream = Stream.of();
-				stream = Stream.concat(stream, Stream.of(classType.getDeclaredFields()));
-				stream = Stream.concat(stream, Stream.of(classType.getFields()));
+				stream = Stream.concat(stream, Stream.of(v.getDeclaredFields()));
+				stream = Stream.concat(stream, Stream.of(v.getFields()));
 				stream = stream.distinct();
 				stream = stream.filter(f -> fieldName.equals(f.getName()));
 				stream = stream.filter(f -> fieldType.isAssignableFrom(f.getType()));
-				stream.limit(2).forEach(fields::add);
-				classType = classType.getSuperclass();
-			}
+				return stream;
+			}).flatMap(v -> v).distinct();
+			var fields = fieldStream.limit(2).collect(Collectors.toList());
 			if (fields.size() != 1)
 				throw new NoSuchElementException(String.format(
 						"field lookup failed. declaringType:%s fieldName:%s fieldType:%s",
@@ -74,6 +71,52 @@ public class TunnelUtils {
 				return null;
 			});
 		});
+	}
+
+	private static final Map<String, Method> _METHOD_REFLECTION_CACHE = new ConcurrentHashMap<>();
+
+	@SuppressWarnings("unchecked")
+	public static <X> X uncheckedMethodInvoke(Object declaringObject, String methodName, Class<X> returnType,
+			Object... arguments) {
+		Objects.requireNonNull(declaringObject);
+		var parameterCount = arguments == null ? 0 : arguments.length;
+		String cacheKey = Arrays.asList(declaringObject.getClass(), methodName, returnType, parameterCount).stream()
+				.map(Objects::requireNonNull).map(v -> {
+					if (v instanceof Class)
+						return ((Class<?>) v).getName();
+					return v.toString();
+				}).collect(Collectors.joining("#"));
+		var method = _METHOD_REFLECTION_CACHE.computeIfAbsent(cacheKey, nil -> {
+			Stream<Method> methodStream = streamHierarcy(declaringObject.getClass()).map(v -> {
+				Stream<Method> stream = Stream.of();
+				stream = Stream.concat(stream, Stream.of(v.getDeclaredMethods()));
+				stream = Stream.concat(stream, Stream.of(v.getMethods()));
+				stream = stream.distinct();
+				stream = stream.filter(m -> !Modifier.isAbstract(m.getModifiers()));
+				stream = stream.filter(m -> m.getParameterCount() == parameterCount);
+				stream = stream.filter(m -> methodName.equals(m.getName()));
+				stream = stream.filter(m -> returnType.isAssignableFrom(m.getReturnType()));
+				return stream;
+			}).flatMap(v -> v).distinct();
+			var methods = methodStream.limit(2).collect(Collectors.toList());
+			if (methods.size() != 1)
+				throw new NoSuchElementException(String.format(
+						"method lookup failed. declaringType:%s methodName:%s returnType:%s parameterCount:%s",
+						declaringObject == null ? null : declaringObject.getClass().getName(), methodName, returnType,
+						parameterCount));
+			var result = methods.get(0);
+			result.setAccessible(true);
+			return result;
+		});
+		return (X) unchecked(() -> method.invoke(declaringObject, arguments));
+	}
+
+	private static Stream<Class<?>> streamHierarcy(Class<?> classType) {
+		if (classType == null)
+			return Stream.of(classType);
+		Stream<Class<?>> stream = Stream.of(classType);
+		stream = Stream.concat(stream, streamHierarcy(classType.getSuperclass()));
+		return stream.filter(Objects::nonNull).distinct();
 	}
 
 	public static <X> X unchecked(Callable<X> callable) {

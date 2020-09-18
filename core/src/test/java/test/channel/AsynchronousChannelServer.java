@@ -10,9 +10,9 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.security.GeneralSecurityException;
 import java.time.Duration;
-import java.util.Base64;
-import java.util.Objects;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 import javax.net.ssl.SSLContext;
@@ -39,6 +39,7 @@ public class AsynchronousChannelServer {
 	}.getClass().getEnclosingClass();
 	private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(THIS_CLASS);
 	private static final int BYTE_BUFFER_CAPACITY = 10_000;
+	private Map<SocketAddress, AsynchronousSocketChannel> backendSocketChannel = new ConcurrentHashMap<>();
 
 	public static void main(String[] args) throws IOException, GeneralSecurityException {
 		// initialize the SSLContext, a configuration holder, reusable object
@@ -58,7 +59,7 @@ public class AsynchronousChannelServer {
 				// group.
 				AsynchronousTlsChannelExt asyncTlsChannel = new AsynchronousTlsChannelExt(channelGroup, rawChannel,
 						null, v -> Optional.of(sslContext));
-				asyncTlsChannel.getTlsChannel().setSslHandshakeTimeout(Duration.ofSeconds(2));
+				asyncTlsChannel.getTlsChannel().setSslHandshakeTimeout(Duration.ofSeconds(1));
 				frontEndRead(asyncTlsChannel);
 			}
 		}
@@ -129,11 +130,11 @@ public class AsynchronousChannelServer {
 
 	protected static AsynchronousSocketChannel createBackendClient(AsynchronousTlsChannelExt asyncTlsChannel,
 			Runnable connectCompleteCallback) throws IOException {
-		AsynchronousSocketChannel client = AsynchronousSocketChannel.open();
 		SocketAddress hostAddress = getSocketAddress(asyncTlsChannel);
 		if (hostAddress == null)
 			throw new IOException(TunnelUtils.formatSummary("backend server discovery failed.",
 					TunnelUtils.getSummary(asyncTlsChannel)));
+		AsynchronousSocketChannel client = AsynchronousSocketChannel.open();
 		ByteBuffer buffer = ByteBuffer.allocate(BYTE_BUFFER_CAPACITY);
 		var readHandler = new CompletionHandler<Integer, Object>() {
 

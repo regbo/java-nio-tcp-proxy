@@ -43,6 +43,8 @@ public class ServerTlsChannelExt implements TlsChannel {
 	private final CompletableFuture<SSLSession> sslSessionFuture = new CompletableFuture<>();
 	private final AtomicReference<CompletableFuture<Void>> sslHandshakeTimeoutFutureRef = new AtomicReference<>();
 	private final ServerTlsChannel delegate;
+	private long readCount;
+	private long writeCount;
 	private Duration sslHandshakeTimeout;
 	private boolean disableSslHandshakeTimeoutLogging;
 	private boolean fixedSSLContext;
@@ -143,22 +145,30 @@ public class ServerTlsChannelExt implements TlsChannel {
 		this.disableSslHandshakeTimeoutLogging = disableSslHandshakeTimeoutLogging;
 	}
 
+	private <N extends Number> N recordRead(N count) {
+		var value = count.longValue();
+		if (value >= 0)
+			readCount += value;
+		return count;
+	}
+
 	@Override
 	public long read(ByteBuffer[] dstBuffers, int offset, int length) throws IOException {
-		return handleRead(() -> delegate.read(dstBuffers, offset, length));
+		return handleRead(() -> recordRead(delegate.read(dstBuffers, offset, length)));
 	}
 
 	@Override
 	public long read(ByteBuffer[] dstBuffers) throws IOException {
-		return handleRead(() -> delegate.read(dstBuffers));
+		return handleRead(() -> recordRead(delegate.read(dstBuffers)));
 	}
 
 	@Override
 	public int read(ByteBuffer dstBuffer) throws IOException {
-		return handleRead(() -> delegate.read(dstBuffer));
+		return handleRead(() -> recordRead(delegate.read(dstBuffer)));
 	}
 
-	protected <X> X handleRead(Callable<X> readTask) throws IOException {
+	@SuppressWarnings("unchecked")
+	protected <X extends Number> X handleRead(Callable<X> readTask) throws IOException {
 		Objects.requireNonNull(readTask);
 		Exception error = null;
 		try {
@@ -208,6 +218,31 @@ public class ServerTlsChannelExt implements TlsChannel {
 			logger.error(msg, error);
 	}
 
+	private <N extends Number> N recordWrite(N count) {
+		var value = count.longValue();
+		if (value >= 0)
+			writeCount += value;
+		return count;
+	}
+
+	@Override
+	public long write(ByteBuffer[] srcs, int offset, int length) throws IOException {
+		return recordWrite(delegate.write(srcs, offset, length));
+	}
+
+	@Override
+	public long write(ByteBuffer[] srcs) throws IOException {
+		return recordWrite(delegate.write(srcs));
+	}
+
+	public long getReadCount() {
+		return readCount;
+	}
+
+	public long getWriteCount() {
+		return writeCount;
+	}
+
 	public SNIServerName getSniServerName() {
 		return sniServerName;
 	}
@@ -241,16 +276,6 @@ public class ServerTlsChannelExt implements TlsChannel {
 	@Override
 	public TrackingAllocator getEncryptedBufferAllocator() {
 		return delegate.getEncryptedBufferAllocator();
-	}
-
-	@Override
-	public long write(ByteBuffer[] srcs, int offset, int length) throws IOException {
-		return delegate.write(srcs, offset, length);
-	}
-
-	@Override
-	public long write(ByteBuffer[] srcs) throws IOException {
-		return delegate.write(srcs);
 	}
 
 	@Override
