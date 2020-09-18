@@ -10,8 +10,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -33,9 +31,8 @@ public class ServerTlsChannelExt implements TlsChannel {
 	private static final Class<?> THIS_CLASS = new Object() {
 	}.getClass().getEnclosingClass();
 	private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(THIS_CLASS);
-	private static final byte[] CLOSE_BARR = new byte[] { -1 };
-	private static final ByteBuffer[] CLOSE_BUFFS = new ByteBuffer[0];
-	private final ReadWriteLock rwLock = new ReentrantReadWriteLock();
+
+	private final ReadWriteLock sniSslContextFactoriesLock = new ReentrantReadWriteLock();
 	private final List<SniSslContextFactory> sniSslContextFactories = new ArrayList<>();
 	private final CompletableFuture<SSLSession> sslSessionFuture = new CompletableFuture<>();
 	private final AtomicReference<CompletableFuture<Void>> sslHandshakeTimeoutFutureRef = new AtomicReference<>();
@@ -45,7 +42,7 @@ public class ServerTlsChannelExt implements TlsChannel {
 
 	public ServerTlsChannelExt(ByteChannel underlying) {
 		ServerTlsChannel.Builder delegateBuilder = ServerTlsChannel.newBuilder(underlying, sniServerNameOp -> {
-			rwLock.readLock().lock();
+			sniSslContextFactoriesLock.readLock().lock();
 			try {
 				for (var fact : sniSslContextFactories) {
 					var sslContextOp = fact.getSslContext(sniServerNameOp);
@@ -53,7 +50,7 @@ public class ServerTlsChannelExt implements TlsChannel {
 						return sslContextOp;
 				}
 			} finally {
-				rwLock.readLock().unlock();
+				sniSslContextFactoriesLock.readLock().unlock();
 			}
 			return Optional.empty();
 		});
@@ -68,50 +65,29 @@ public class ServerTlsChannelExt implements TlsChannel {
 	public boolean addSniSslContextFactory(SniSslContextFactory sniSslContextFactory) {
 		if (sniSslContextFactory == null)
 			return false;
-		rwLock.writeLock().lock();
+		sniSslContextFactoriesLock.writeLock().lock();
 		try {
 			if (sniSslContextFactories.contains(sniSslContextFactory))
 				return false;
 			return sniSslContextFactories.add(sniSslContextFactory);
 		} finally {
-			rwLock.writeLock().unlock();
+			sniSslContextFactoriesLock.writeLock().unlock();
 		}
 	}
 
 	public boolean removeSniSslContextFactory(SniSslContextFactory sniSslContextFactory) {
 		if (sniSslContextFactory == null)
 			return false;
-		rwLock.writeLock().lock();
+		sniSslContextFactoriesLock.writeLock().lock();
 		try {
 			return sniSslContextFactories.remove(sniSslContextFactory);
 		} finally {
-			rwLock.writeLock().unlock();
+			sniSslContextFactoriesLock.writeLock().unlock();
 		}
 	}
 
 	public SSLContext getSslContext() {
 		return delegate.getSslContext();
-	}
-
-	public void validateSslSession() throws IOException {
-		Throwable error = null;
-		try {
-			var session = this.getSslSessionFuture().getNow(null);
-			if (session != null)
-				return;
-		} catch (Throwable t) {
-			error = t;
-		}
-		while ((error instanceof CompletionException || error instanceof ExecutionException)
-				&& error.getCause() != null)
-			error = error.getCause();
-		if (error instanceof IOException)
-			throw (IOException) error;
-		String msg = "ssl session validation failed";
-		if (error != null)
-			throw new IOException(msg, error);
-		throw new IOException(msg);
-
 	}
 
 	@Override

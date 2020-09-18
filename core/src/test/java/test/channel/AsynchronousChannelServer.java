@@ -126,7 +126,6 @@ public class AsynchronousChannelServer {
 								}
 							});
 						} else {
-							tlsChannel.validateSslSession();
 							closeQuietly(asyncTlsChannel);
 							closeQuietly(backendClientRef.get());
 						}
