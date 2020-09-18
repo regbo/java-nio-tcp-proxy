@@ -1,4 +1,4 @@
-package test.channel;
+package com.lfp.tls.chanel.ext.core;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -43,7 +43,7 @@ public class AsynchronousChannelServer {
 
 	public static void main(String[] args) throws IOException, GeneralSecurityException {
 		// initialize the SSLContext, a configuration holder, reusable object
-		SSLContext sslContext = TcpProxyTest.createSSLContext();
+		SSLContext sslContext = null;
 		AsynchronousTlsChannelGroup channelGroup = new AsynchronousTlsChannelGroup();
 		// connect server socket channel and register it in the selector
 		try (ServerSocketChannel serverSocket = ServerSocketChannel.open()) {

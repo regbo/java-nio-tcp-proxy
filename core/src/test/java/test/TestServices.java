@@ -4,7 +4,6 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringReader;
-import java.net.InetSocketAddress;
 import java.security.GeneralSecurityException;
 import java.security.KeyFactory;
 import java.security.KeyStore;
@@ -16,7 +15,6 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.spec.PKCS8EncodedKeySpec;
-import java.util.Optional;
 
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -26,24 +24,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.util.io.pem.PemObject;
 import org.bouncycastle.util.io.pem.PemReader;
 
-import com.lfp.tls.proxy.core.TcpDynamicProxyConfig;
-import com.lfp.tls.proxy.core.TcpProxyLFP;
-
-public class TcpProxyTest {
-
-	public static void main(String[] args) throws IOException, GeneralSecurityException, InterruptedException {
-		TcpDynamicProxyConfig config = TcpDynamicProxyConfig.builder().withLocalPort(6969)
-				.withRemoteSocketAddressGenerator(op -> {
-					return new InetSocketAddress("localhost", 8181);
-				}).build();
-		var sslContext = createSSLContext();
-		TcpProxyLFP proxy = new TcpProxyLFP(config, op -> {
-			return Optional.of(sslContext);
-		});
-		proxy.start();
-		System.out.println("started");
-		Thread.currentThread().join();
-	}
+public class TestServices {
 
 	public static SSLContext createSSLContext() throws IOException, GeneralSecurityException {
 		Security.addProvider(new BouncyCastleProvider());
