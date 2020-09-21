@@ -3,11 +3,9 @@ package com.lfp.tls.chanel.ext.core;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ByteChannel;
-import java.nio.channels.SocketChannel;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -18,8 +16,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
@@ -43,8 +41,6 @@ public class ServerTlsChannelExt implements TlsChannel {
 	private final CompletableFuture<SSLSession> sslSessionFuture = new CompletableFuture<>();
 	private final AtomicReference<CompletableFuture<Void>> sslHandshakeTimeoutFutureRef = new AtomicReference<>();
 	private final ServerTlsChannel delegate;
-	private long readCount;
-	private long writeCount;
 	private Duration sslHandshakeTimeout;
 	private boolean disableSslHandshakeTimeoutLogging;
 	private boolean fixedSSLContext;
@@ -107,29 +103,14 @@ public class ServerTlsChannelExt implements TlsChannel {
 	}
 
 	public boolean addSniSslContextFactory(SniSslContextFactory sniSslContextFactory) {
-		if (sniSslContextFactory == null)
-			return false;
 		if (this.fixedSSLContext)
 			return false;
-		sniSslContextFactoriesLock.writeLock().lock();
-		try {
-			if (sniSslContextFactories.contains(sniSslContextFactory))
-				return false;
-			return sniSslContextFactories.add(sniSslContextFactory);
-		} finally {
-			sniSslContextFactoriesLock.writeLock().unlock();
-		}
+		return TunnelUtils.lockAdd(sniSslContextFactoriesLock, sniSslContextFactories, sniSslContextFactory);
+
 	}
 
 	public boolean removeSniSslContextFactory(SniSslContextFactory sniSslContextFactory) {
-		if (sniSslContextFactory == null)
-			return false;
-		sniSslContextFactoriesLock.writeLock().lock();
-		try {
-			return sniSslContextFactories.remove(sniSslContextFactory);
-		} finally {
-			sniSslContextFactoriesLock.writeLock().unlock();
-		}
+		return TunnelUtils.lockRemove(sniSslContextFactoriesLock, sniSslContextFactories, sniSslContextFactory);
 	}
 
 	public SSLContext getSslContext() {
@@ -145,29 +126,21 @@ public class ServerTlsChannelExt implements TlsChannel {
 		this.disableSslHandshakeTimeoutLogging = disableSslHandshakeTimeoutLogging;
 	}
 
-	private <N extends Number> N recordRead(N count) {
-		var value = count.longValue();
-		if (value >= 0)
-			readCount += value;
-		return count;
-	}
-
 	@Override
 	public long read(ByteBuffer[] dstBuffers, int offset, int length) throws IOException {
-		return handleRead(() -> recordRead(delegate.read(dstBuffers, offset, length)));
+		return handleRead(() -> delegate.read(dstBuffers, offset, length));
 	}
 
 	@Override
 	public long read(ByteBuffer[] dstBuffers) throws IOException {
-		return handleRead(() -> recordRead(delegate.read(dstBuffers)));
+		return handleRead(() -> delegate.read(dstBuffers));
 	}
 
 	@Override
 	public int read(ByteBuffer dstBuffer) throws IOException {
-		return handleRead(() -> recordRead(delegate.read(dstBuffer)));
+		return handleRead(() -> delegate.read(dstBuffer));
 	}
 
-	@SuppressWarnings("unchecked")
 	protected <X extends Number> X handleRead(Callable<X> readTask) throws IOException {
 		Objects.requireNonNull(readTask);
 		Exception error = null;
@@ -218,29 +191,14 @@ public class ServerTlsChannelExt implements TlsChannel {
 			logger.error(msg, error);
 	}
 
-	private <N extends Number> N recordWrite(N count) {
-		var value = count.longValue();
-		if (value >= 0)
-			writeCount += value;
-		return count;
-	}
-
 	@Override
 	public long write(ByteBuffer[] srcs, int offset, int length) throws IOException {
-		return recordWrite(delegate.write(srcs, offset, length));
+		return delegate.write(srcs, offset, length);
 	}
 
 	@Override
 	public long write(ByteBuffer[] srcs) throws IOException {
-		return recordWrite(delegate.write(srcs));
-	}
-
-	public long getReadCount() {
-		return readCount;
-	}
-
-	public long getWriteCount() {
-		return writeCount;
+		return delegate.write(srcs);
 	}
 
 	public SNIServerName getSniServerName() {

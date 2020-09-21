@@ -10,12 +10,14 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SocketChannel;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -26,6 +28,7 @@ import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLHandshakeException;
 
+import tlschannel.SniSslContextFactory;
 import tlschannel.TlsChannel;
 
 public class TunnelUtils {
@@ -63,7 +66,9 @@ public class TunnelUtils {
 			result.setAccessible(true);
 			return result;
 		});
-		return reflectAccess.apply(() -> {
+		return reflectAccess.apply(() ->
+
+		{
 			return (F) unchecked(() -> field.get(declaringObject));
 		}, v -> {
 			unchecked(() -> {
@@ -71,44 +76,6 @@ public class TunnelUtils {
 				return null;
 			});
 		});
-	}
-
-	private static final Map<String, Method> _METHOD_REFLECTION_CACHE = new ConcurrentHashMap<>();
-
-	@SuppressWarnings("unchecked")
-	public static <X> X uncheckedMethodInvoke(Object declaringObject, String methodName, Class<X> returnType,
-			Object... arguments) {
-		Objects.requireNonNull(declaringObject);
-		var parameterCount = arguments == null ? 0 : arguments.length;
-		String cacheKey = Arrays.asList(declaringObject.getClass(), methodName, returnType, parameterCount).stream()
-				.map(Objects::requireNonNull).map(v -> {
-					if (v instanceof Class)
-						return ((Class<?>) v).getName();
-					return v.toString();
-				}).collect(Collectors.joining("#"));
-		var method = _METHOD_REFLECTION_CACHE.computeIfAbsent(cacheKey, nil -> {
-			Stream<Method> methodStream = streamHierarcy(declaringObject.getClass()).map(v -> {
-				Stream<Method> stream = Stream.of();
-				stream = Stream.concat(stream, Stream.of(v.getDeclaredMethods()));
-				stream = Stream.concat(stream, Stream.of(v.getMethods()));
-				stream = stream.distinct();
-				stream = stream.filter(m -> !Modifier.isAbstract(m.getModifiers()));
-				stream = stream.filter(m -> m.getParameterCount() == parameterCount);
-				stream = stream.filter(m -> methodName.equals(m.getName()));
-				stream = stream.filter(m -> returnType.isAssignableFrom(m.getReturnType()));
-				return stream;
-			}).flatMap(v -> v).distinct();
-			var methods = methodStream.limit(2).collect(Collectors.toList());
-			if (methods.size() != 1)
-				throw new NoSuchElementException(String.format(
-						"method lookup failed. declaringType:%s methodName:%s returnType:%s parameterCount:%s",
-						declaringObject == null ? null : declaringObject.getClass().getName(), methodName, returnType,
-						parameterCount));
-			var result = methods.get(0);
-			result.setAccessible(true);
-			return result;
-		});
-		return (X) unchecked(() -> method.invoke(declaringObject, arguments));
 	}
 
 	private static Stream<Class<?>> streamHierarcy(Class<?> classType) {
@@ -226,19 +193,50 @@ public class TunnelUtils {
 		return logData;
 	}
 
-	public static String getSNIServerNameValue(SNIServerName sniServerName) {
+	public static Optional<String> getSNIServerNameValue(SNIServerName sniServerName) {
 		if (sniServerName == null)
-			return null;
+			return Optional.empty();
+		String valueStr;
 		if (sniServerName instanceof SNIHostName)
-			return ((SNIHostName) sniServerName).getAsciiName();
-		String str = sniServerName.toString();
-		String token = "value=";
-		var index = str.lastIndexOf(token);
-		if (index < 0)
-			return null;
-		str = str.substring(index + token.length());
-		if (str.isEmpty())
-			return null;
-		return str;
+			valueStr = ((SNIHostName) sniServerName).getAsciiName();
+		else {
+			valueStr = sniServerName.toString();
+			String token = "value=";
+			var index = valueStr.lastIndexOf(token);
+			if (index < 0)
+				Optional.empty();
+			valueStr = valueStr.substring(index + token.length());
+		}
+		if (valueStr == null || valueStr.isEmpty())
+			Optional.empty();
+		return Optional.of(valueStr);
+	}
+
+	public static <X> boolean lockAdd(ReadWriteLock lock, List<X> list, X value) {
+		Objects.requireNonNull(lock);
+		Objects.requireNonNull(list);
+		if (value == null)
+			return false;
+		lock.writeLock().lock();
+		try {
+			if (!list.contains(value))
+				return list.add(value);
+		} finally {
+			lock.writeLock().unlock();
+		}
+		return false;
+	}
+
+	public static <X> boolean lockRemove(ReadWriteLock lock, List<X> list, X value) {
+		Objects.requireNonNull(lock);
+		Objects.requireNonNull(list);
+		if (value == null)
+			return false;
+		lock.writeLock().lock();
+		try {
+			return list.remove(value);
+		} finally {
+			lock.writeLock().unlock();
+		}
 	}
 }

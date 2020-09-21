@@ -3,7 +3,7 @@
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <modelVersion>4.0.0</modelVersion>
   <groupId>com.lfp</groupId>
-  <artifactId>tls-manager-ext-parent</artifactId>
+  <artifactId>tls-channel-ext-parent</artifactId>
   <version>${revision}</version>
   <packaging>pom</packaging>
   <modules>

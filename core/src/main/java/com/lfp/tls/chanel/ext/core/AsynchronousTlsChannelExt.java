@@ -1,6 +1,5 @@
 package com.lfp.tls.chanel.ext.core;
 
-import java.nio.channels.ByteChannel;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SocketChannel;
 import java.util.function.Consumer;
