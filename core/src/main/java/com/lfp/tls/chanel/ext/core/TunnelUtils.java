@@ -3,9 +3,10 @@ package com.lfp.tls.chanel.ext.core;
 import java.io.Closeable;
 import java.io.IOException;
 import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
+import java.nio.channels.AsynchronousByteChannel;
 import java.nio.channels.AsynchronousCloseException;
+import java.nio.channels.ByteChannel;
+import java.nio.channels.Channel;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SocketChannel;
 import java.util.Arrays;
@@ -28,7 +29,6 @@ import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLHandshakeException;
 
-import tlschannel.SniSslContextFactory;
 import tlschannel.TlsChannel;
 
 public class TunnelUtils {
@@ -159,19 +159,15 @@ public class TunnelUtils {
 		return prepend + result;
 	}
 
-	public static Map<String, Object> getSummary(AsynchronousTlsChannelExt asyncTlsChannel) {
-		return getSummary(asyncTlsChannel == null ? null : asyncTlsChannel.getTlsChannel());
-	}
-
-	public static Map<String, Object> getSummary(TlsChannel tlsChannel) {
+	public static Map<String, Object> getSummary(Channel channel) {
 		Map<String, Object> logData = new LinkedHashMap<>();
-		if (tlsChannel == null)
+		if (channel == null)
 			return logData;
-		if (tlsChannel instanceof ServerTlsChannelExt) {
-			var sniServerName = ((ServerTlsChannelExt) tlsChannel).getSniServerName();
+		if (channel instanceof ServerTlsChannelExt) {
+			var sniServerName = ((ServerTlsChannelExt) channel).getSniServerName();
 			logData.put("sniServerNameValue", getSNIServerNameValue(sniServerName));
 		}
-		Optional<SocketChannel> socketChannelOp = Optional.ofNullable(tlsChannel.getUnderlying()).map(v -> {
+		Optional<SocketChannel> socketChannelOp = Optional.ofNullable(channel).map(v -> {
 			if (v instanceof SocketChannel)
 				return (SocketChannel) v;
 			return null;

@@ -4,6 +4,7 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.security.GeneralSecurityException;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 
@@ -17,7 +18,7 @@ public class TlsTunnelerTest {
 	public static void main(String[] args)
 			throws IOException, GeneralSecurityException, InterruptedException, ExecutionException {
 		var sslContext = TestServices.createSSLContext();
-		var tunneler = new TlsTunneler() {
+		var tunneler = new TlsTunneler(Duration.ofSeconds(1)) {
 
 			@Override
 			protected Optional<SSLContext> getSSLContext(Optional<SNIServerName> sniServerNameOp) {
@@ -32,19 +33,7 @@ public class TlsTunnelerTest {
 			}
 		};
 		var tunnel1 = tunneler.start(new InetSocketAddress(8282));
-		//var tunnel2 = tunneler.start(new InetSocketAddress(8282));
-		new Thread(() -> {
-			while (true) {
-				try {
-					Thread.sleep(1000);
-				} catch (InterruptedException e) {
-					throw (((Object) e) instanceof java.lang.RuntimeException)
-							? java.lang.RuntimeException.class.cast(e)
-							: new RuntimeException(e);
-				}
-				System.out.println(tunnel1.getReadCount() + " - " + tunnel1.getWriteCount());
-			}
-		}).start();
+		// var tunnel2 = tunneler.start(new InetSocketAddress(8282));
 		Thread.currentThread().join();
 	}
 }

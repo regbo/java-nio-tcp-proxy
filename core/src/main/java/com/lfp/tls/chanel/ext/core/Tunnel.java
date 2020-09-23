@@ -6,17 +6,16 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicLong;
 
 public class Tunnel implements Future<Void> {
 
 	private final Future<Void> delegate;
 	private final SocketAddress backEndAddress;
-	private AtomicLong readCounter;
-	private AtomicLong writeCounter;
+	private ByteCounter readCounter;
+	private ByteCounter writeCounter;
 
-	public Tunnel(Future<Void> delegate, SocketAddress backEndAddress, AtomicLong readCounter,
-			AtomicLong writeCounter) {
+	public Tunnel(Future<Void> delegate, SocketAddress backEndAddress, ByteCounter readCounter,
+			ByteCounter writeCounter) {
 		this.delegate = Objects.requireNonNull(delegate);
 		this.backEndAddress = Objects.requireNonNull(backEndAddress);
 		this.readCounter = Objects.requireNonNull(readCounter);
@@ -27,12 +26,12 @@ public class Tunnel implements Future<Void> {
 		return backEndAddress;
 	}
 
-	public long getReadCount() {
-		return readCounter.get();
+	public ByteCounter getReadCounter() {
+		return readCounter;
 	}
 
-	public long getWriteCount() {
-		return writeCounter.get();
+	public ByteCounter getWriteCounter() {
+		return writeCounter;
 	}
 
 	@Override
