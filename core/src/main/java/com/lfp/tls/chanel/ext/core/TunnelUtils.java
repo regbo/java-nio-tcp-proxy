@@ -17,6 +17,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.BiFunction;
@@ -133,15 +134,6 @@ public class TunnelUtils {
 		return true;
 	}
 
-	public static boolean isCertificateUnknownError(Throwable error) {
-		if (error instanceof SSLHandshakeException) {
-			String msg = Optional.ofNullable(error.getMessage()).map(String::toLowerCase).orElse("");
-			if (msg.contains("Received fatal alert: certificate_unknown".toLowerCase()))
-				return true;
-		}
-		return false;
-	}
-
 	public static String formatSummary(String prepend, Map<String, Object> summaryData) {
 		if (prepend == null)
 			prepend = "";
@@ -235,4 +227,14 @@ public class TunnelUtils {
 			lock.writeLock().unlock();
 		}
 	}
+
+	public static boolean isCertificateUnknownError(Throwable error) {
+		if (error instanceof SSLHandshakeException) {
+			String msg = Optional.ofNullable(error.getMessage()).map(String::toLowerCase).orElse("");
+			if (msg.contains("Received fatal alert: certificate_unknown".toLowerCase()))
+				return true;
+		}
+		return false;
+	}
+
 }
